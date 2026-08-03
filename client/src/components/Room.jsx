@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import VideoPlayer from './VideoPlayer';
 import Participants from './Participants';
@@ -17,6 +17,8 @@ function Room({ roomState, displayName, userId, onLeave }) {
   const toastIdCounter = useRef(0);
   const hasJoinedRef = useRef(false);
   
+  console.log('🔍 Room mounted:', { isHost, userId, roomState });
+
   const wsUrl = 'ws://localhost:5000/ws';
 
   const { sendMessage, isConnected } = useWebSocket(wsUrl, {
@@ -24,6 +26,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
       console.log('✅ WebSocket connected!');
       if (!hasJoinedRef.current && room && displayName) {
         hasJoinedRef.current = true;
+        console.log('📤 Joining room as:', displayName);
         sendMessage('join_room', {
           roomCode: room.roomCode,
           displayName: displayName
@@ -35,7 +38,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
     },
     onClose: () => {
       hasJoinedRef.current = false;
-      addToast('Disconnected from server', 'error');
+      addToast('Disconnected', 'error');
     },
     onError: (error) => {
       console.error('WebSocket error:', error);
@@ -48,13 +51,16 @@ function Room({ roomState, displayName, userId, onLeave }) {
 
     switch (type) {
       case 'room_state':
+        console.log('📊 Room state:', payload);
         setRoom(payload);
         setParticipants(payload.participants || []);
-        setIsHost(payload.userId === payload.hostId);
+        const newIsHost = payload.userId === payload.hostId;
+        setIsHost(newIsHost);
         setVideoId(payload.currentVideo);
         setIsPlaying(payload.isPlaying);
         setCurrentTime(payload.currentTime);
-        addToast('Connected to room!', 'success');
+        console.log(`👑 User is ${newIsHost ? 'HOST' : 'PARTICIPANT'}`);
+        addToast(`You are ${newIsHost ? 'Host' : 'Participant'}`, 'info');
         break;
 
       case 'user_joined':
@@ -72,18 +78,22 @@ function Room({ roomState, displayName, userId, onLeave }) {
         break;
 
       case 'play':
+        console.log('▶️ Play event received');
         setIsPlaying(true);
         break;
 
       case 'pause':
+        console.log('⏸️ Pause event received');
         setIsPlaying(false);
         break;
 
       case 'seek':
+        console.log('⏩ Seek to:', payload.time);
         setCurrentTime(payload.time);
         break;
 
       case 'change_video':
+        console.log('🎬 Video changed:', payload.videoId);
         setVideoId(payload.videoId);
         setCurrentTime(0);
         setIsPlaying(false);
@@ -91,33 +101,28 @@ function Room({ roomState, displayName, userId, onLeave }) {
         break;
 
       case 'sync_response':
+        console.log('🔄 Sync:', payload);
         setVideoId(payload.videoId);
         setCurrentTime(payload.time);
         setIsPlaying(payload.isPlaying);
         break;
 
+      case 'error':
+        addToast(payload.message || 'Error', 'error');
+        break;
+
       case 'removed_by_host':
-        addToast(payload.message || 'Removed by host', 'error');
-        setTimeout(() => {
-          onLeave();
-          navigate('/');
-        }, 1500);
+        addToast('You were removed by host', 'error');
+        setTimeout(() => { onLeave(); navigate('/'); }, 1500);
         break;
 
       case 'room_closed':
         addToast('Room closed by host', 'error');
-        setTimeout(() => {
-          onLeave();
-          navigate('/');
-        }, 1500);
-        break;
-
-      case 'error':
-        addToast(payload.message || 'Error occurred', 'error');
+        setTimeout(() => { onLeave(); navigate('/'); }, 1500);
         break;
 
       default:
-        console.log('Unknown event:', type);
+        console.log('Unknown:', type);
     }
   };
 
@@ -129,64 +134,59 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }, 4000);
   };
 
-  // ===== HOST CONTROLS =====
+  // ===== HOST CONTROLS WITH CHECKS =====
   const handlePlay = () => {
+    console.log(`🎯 Play clicked - isHost: ${isHost}, isConnected: ${isConnected}`);
     if (!isHost) {
-      addToast('Only host can control playback', 'error');
+      addToast('🔒 Only Host can play!', 'error');
       return;
     }
     if (!isConnected) {
-      addToast('Not connected to server', 'error');
+      addToast('Not connected', 'error');
       return;
     }
+    console.log('📤 Sending PLAY');
     sendMessage('play', {});
   };
 
   const handlePause = () => {
+    console.log(`🎯 Pause clicked - isHost: ${isHost}, isConnected: ${isConnected}`);
     if (!isHost) {
-      addToast('Only host can control playback', 'error');
+      addToast('🔒 Only Host can pause!', 'error');
       return;
     }
     if (!isConnected) {
-      addToast('Not connected to server', 'error');
+      addToast('Not connected', 'error');
       return;
     }
+    console.log('📤 Sending PAUSE');
     sendMessage('pause', {});
   };
 
   const handleSeek = (time) => {
     if (!isHost) {
-      addToast('Only host can seek', 'error');
+      addToast('🔒 Only Host can seek!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
+    if (!isConnected) return;
     sendMessage('seek', { time });
   };
 
   const handleChangeVideo = (newVideoId) => {
     if (!isHost) {
-      addToast('Only host can change video', 'error');
+      addToast('🔒 Only Host can change video!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
+    if (!isConnected) return;
     sendMessage('change_video', { videoId: newVideoId });
   };
 
   const handleRemoveParticipant = (targetUserId) => {
     if (!isHost) {
-      addToast('Only host can remove participants', 'error');
+      addToast('🔒 Only Host can remove participants!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
+    if (!isConnected) return;
     sendMessage('remove_participant', { targetUserId });
   };
 
@@ -202,12 +202,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
     addToast('Room code copied!', 'success');
   };
 
-  const copyRoomLink = () => {
-    const link = `${window.location.origin}/room/${room.roomCode}`;
-    navigator.clipboard.writeText(link);
-    addToast('Room link copied!', 'success');
-  };
-
   return (
     <div className="room-container">
       <div className="room-header">
@@ -216,10 +210,12 @@ function Room({ roomState, displayName, userId, onLeave }) {
           <div className="room-code-wrapper">
             <span className="room-code">Room: {room.roomCode}</span>
             <button onClick={copyRoomCode} className="icon-btn">📋</button>
-            <button onClick={copyRoomLink} className="icon-btn">🔗</button>
           </div>
           <span className={`status ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? '● Connected' : '○ Disconnected'}
+          </span>
+          <span className={`role-badge ${isHost ? 'host' : 'participant'}`}>
+            {isHost ? '👑 Host' : '👤 Participant'}
           </span>
         </div>
         <button onClick={handleLeave} className="btn-leave">Leave</button>
@@ -305,7 +301,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
           padding: 4px 6px;
           font-size: 16px;
           cursor: pointer;
-          transition: color 0.2s;
         }
         .icon-btn:hover {
           color: #e8e8e8;
@@ -321,6 +316,22 @@ function Room({ roomState, displayName, userId, onLeave }) {
         }
         .status.disconnected {
           color: #f44336;
+        }
+        .role-badge {
+          font-size: 13px;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-weight: 500;
+        }
+        .role-badge.host {
+          background: rgba(255, 215, 0, 0.15);
+          color: #ffd700;
+          border: 1px solid #ffd700;
+        }
+        .role-badge.participant {
+          background: rgba(108, 99, 255, 0.1);
+          color: #6c63ff;
+          border: 1px solid #6c63ff;
         }
         .btn-leave {
           padding: 8px 20px;

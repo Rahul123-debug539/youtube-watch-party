@@ -6,7 +6,7 @@ function Participants({ participants, hostId, currentUserId, isHost, onRemove })
   // Ensure participants is an array
   const participantsList = Array.isArray(participants) ? participants : [];
   
-  // Remove duplicates
+  // Remove duplicates based on id
   const uniqueParticipants = participantsList.filter((participant, index, self) => 
     index === self.findIndex(p => p.id === participant.id)
   );
@@ -34,7 +34,7 @@ function Participants({ participants, hostId, currentUserId, isHost, onRemove })
 
             return (
               <div
-                key={participant.id}
+                key={participant.id || Math.random().toString()} // Ensure unique key
                 className={`participant-item ${isCurrentUser ? 'current-user' : ''} ${isHostUser ? 'host' : ''}`}
               >
                 <div className="participant-info">
