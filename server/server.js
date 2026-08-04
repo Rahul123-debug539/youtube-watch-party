@@ -13,9 +13,9 @@ app.use(express.json());
 
 console.log('📡 Starting Watch Party Server...');
 
-// ============ IN-MEMORY STORAGE ============
-const rooms = new Map(); // roomCode -> room object
-const clients = new Map(); // socketId -> { ws, roomCode, userId }
+// ============ STORAGE ============
+const rooms = new Map();
+const clients = new Map();
 
 // ============ HELPERS ============
 function generateRoomCode() {
@@ -47,32 +47,44 @@ function sendToClient(socketId, type, payload) {
   if (client && client.ws.readyState === 1) {
     client.ws.send(JSON.stringify({ type, payload }));
     console.log(`📤 Sent ${type} to ${socketId}`);
+    return true;
   }
+  return false;
 }
 
 function broadcastToRoom(roomCode, type, payload, excludeSocketId = null) {
   const room = rooms.get(roomCode);
   if (!room) {
-    console.log(`⚠️ Room ${roomCode} not found for broadcast`);
+    console.log(`⚠️ Room ${roomCode} not found`);
     return;
   }
 
   const message = JSON.stringify({ type, payload });
   let count = 0;
 
+  console.log(`📢 Broadcasting ${type} to room ${roomCode}`);
+  console.log(`👥 Participants in room:`, Array.from(room.participants.keys()));
+
   for (const [userId, data] of room.participants.entries()) {
     const socketId = data.socketId;
-    if (!socketId || socketId === excludeSocketId) continue;
+    
+    // Skip if no socket or excluded
+    if (!socketId || socketId === excludeSocketId) {
+      console.log(`⏭️ Skipping ${data.displayName} (${socketId})`);
+      continue;
+    }
     
     const client = clients.get(socketId);
     if (client && client.ws.readyState === 1) {
       client.ws.send(message);
       count++;
       console.log(`📤 Sent ${type} to ${data.displayName} (${socketId})`);
+    } else {
+      console.log(`⚠️ Client ${socketId} not connected`);
     }
   }
 
-  console.log(`📤 Broadcast ${type} to ${count} clients in room ${roomCode}`);
+  console.log(`📤 Broadcast ${type} to ${count} clients`);
 }
 
 function sendError(ws, message) {
@@ -117,7 +129,7 @@ app.post('/api/rooms/create', (req, res) => {
 
     rooms.set(roomCode, room);
 
-    console.log(`✅ Room created: ${roomCode} by ${displayName} (hostId: ${hostId})`);
+    console.log(`✅ Room created: ${roomCode} by ${displayName}`);
 
     res.status(201).json({
       roomCode,
@@ -273,12 +285,12 @@ async function handleJoin(socketId, payload) {
       socketId,
       role: 'participant'
     });
-    console.log(`✅ New participant: ${displayName} (${userId})`);
+    console.log(`✅ New participant: ${displayName}`);
   } else {
     // Update socket
     const participant = room.participants.get(userId);
     participant.socketId = socketId;
-    console.log(`🔄 Existing user: ${displayName} (${userId})`);
+    console.log(`🔄 Existing user: ${displayName}`);
   }
 
   client.roomCode = roomCode;
@@ -302,7 +314,7 @@ async function handleJoin(socketId, payload) {
     userRole: userRole
   };
 
-  console.log(`📤 Sending room_state to ${displayName}:`, roomState);
+  console.log(`📤 Sending room_state to ${displayName}`);
   sendToClient(socketId, 'room_state', roomState);
 
   // Broadcast user joined to others
@@ -313,7 +325,7 @@ async function handleJoin(socketId, payload) {
   }, socketId);
 }
 
-// ===== PLAY - ONLY HOST =====
+// ===== PLAY - FIXED =====
 async function handlePlay(socketId) {
   const client = clients.get(socketId);
   if (!client) return;
@@ -328,7 +340,7 @@ async function handlePlay(socketId) {
 
   // Check if user is HOST
   const isHost = client.userId === room.hostId;
-  console.log(`🔍 User ${client.userId} isHost: ${isHost}, HostId: ${room.hostId}`);
+  console.log(`🔍 User ${client.userId} isHost: ${isHost}`);
 
   if (!isHost) {
     console.log(`❌ Non-host tried to play!`);
@@ -340,20 +352,14 @@ async function handlePlay(socketId) {
   room.isPlaying = true;
   console.log(`▶️ Play - Room ${client.roomCode} state updated`);
 
-  // Broadcast to ALL clients including host
+  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'play', { 
     timestamp: Date.now(),
     isPlaying: true 
-  }, null); // ❌ Remove excludeSocketId so host also gets it
-
-  // Also send to host specifically to ensure sync
-  sendToClient(socketId, 'play', { 
-    timestamp: Date.now(),
-    isPlaying: true 
-  });
+  }, null);
 }
 
-// ===== PAUSE - ONLY HOST =====
+// ===== PAUSE - FIXED =====
 async function handlePause(socketId) {
   const client = clients.get(socketId);
   if (!client) return;
@@ -368,7 +374,7 @@ async function handlePause(socketId) {
 
   // Check if user is HOST
   const isHost = client.userId === room.hostId;
-  console.log(`🔍 User ${client.userId} isHost: ${isHost}, HostId: ${room.hostId}`);
+  console.log(`🔍 User ${client.userId} isHost: ${isHost}`);
 
   if (!isHost) {
     console.log(`❌ Non-host tried to pause!`);
@@ -380,20 +386,14 @@ async function handlePause(socketId) {
   room.isPlaying = false;
   console.log(`⏸️ Pause - Room ${client.roomCode} state updated`);
 
-  // Broadcast to ALL clients including host
+  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'pause', { 
     timestamp: Date.now(),
     isPlaying: false 
-  }, null); // ❌ Remove excludeSocketId so host also gets it
-
-  // Also send to host specifically to ensure sync
-  sendToClient(socketId, 'pause', { 
-    timestamp: Date.now(),
-    isPlaying: false 
-  });
+  }, null);
 }
 
-// ===== SEEK - ONLY HOST =====
+// ===== SEEK - FIXED =====
 async function handleSeek(socketId, payload) {
   const { time } = payload;
   const client = clients.get(socketId);
@@ -419,20 +419,14 @@ async function handleSeek(socketId, payload) {
   room.currentTime = time;
   console.log(`⏩ Seek - Room ${client.roomCode} time updated to ${time}`);
 
-  // Broadcast to ALL clients including host
+  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'seek', { 
     time,
     timestamp: Date.now()
-  }, null); // ❌ Remove excludeSocketId so host also gets it
-
-  // Also send to host specifically to ensure sync
-  sendToClient(socketId, 'seek', { 
-    time,
-    timestamp: Date.now()
-  });
+  }, null);
 }
 
-// ===== CHANGE VIDEO - ONLY HOST =====
+// ===== CHANGE VIDEO - FIXED =====
 async function handleChangeVideo(socketId, payload) {
   const { videoId } = payload;
   const client = clients.get(socketId);
@@ -460,17 +454,11 @@ async function handleChangeVideo(socketId, payload) {
   room.isPlaying = false;
   console.log(`🎬 Video changed - Room ${client.roomCode}`);
 
-  // Broadcast to ALL clients including host
+  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'change_video', { 
     videoId,
     timestamp: Date.now()
-  }, null); // ❌ Remove excludeSocketId so host also gets it
-
-  // Also send to host specifically to ensure sync
-  sendToClient(socketId, 'change_video', { 
-    videoId,
-    timestamp: Date.now()
-  });
+  }, null);
 }
 
 // ===== SYNC =====
@@ -490,7 +478,7 @@ async function handleSync(socketId) {
   });
 }
 
-// ===== REMOVE PARTICIPANT - ONLY HOST =====
+// ===== REMOVE PARTICIPANT =====
 async function handleRemove(socketId, payload) {
   const { targetUserId } = payload;
   const client = clients.get(socketId);
@@ -539,7 +527,6 @@ function handleDisconnect(socketId) {
     if (room) {
       const participant = room.participants.get(userId);
       if (participant) {
-        // If host leaves, close room
         if (userId === room.hostId) {
           rooms.delete(roomCode);
           broadcastToRoom(roomCode, 'room_closed', {

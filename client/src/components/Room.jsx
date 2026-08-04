@@ -8,7 +8,7 @@ import Toast from './Toast';
 function Room({ roomState, displayName, userId, onLeave }) {
   const navigate = useNavigate();
   
-  // ===== ALL STATE DECLARATIONS =====
+  // ===== STATE =====
   const [room, setRoom] = useState(roomState);
   const [participants, setParticipants] = useState(roomState.participants || []);
   const [isHost, setIsHost] = useState(roomState.userRole === 'host');
@@ -25,29 +25,10 @@ function Room({ roomState, displayName, userId, onLeave }) {
   const hasJoinedRef = useRef(false);
   const syncTimerRef = useRef(null);
   const leaveInProgressRef = useRef(false);
-  const isPlayingRef = useRef(isPlaying);
-  const currentTimeRef = useRef(currentTime);
   
-  // Update refs
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
+  console.log('🔍 Room mounted:', { isHost, videoId, isPlaying, currentTime });
 
-  useEffect(() => {
-    currentTimeRef.current = currentTime;
-  }, [currentTime]);
-
-  console.log('🔍 Room mounted:', { 
-    isHost, 
-    userId, 
-    roomCode: room?.roomCode,
-    isPlaying,
-    currentTime,
-    videoId,
-    participantsCount: participants?.length 
-  });
-
-  // Use deployed backend URL
+  // WebSocket URL
   const wsUrl = import.meta.env.VITE_WS_URL || 'wss://youtube-watch-party-s7p4.onrender.com/ws';
 
   const { sendMessage, isConnected, reconnect } = useWebSocket(wsUrl, {
@@ -63,15 +44,14 @@ function Room({ roomState, displayName, userId, onLeave }) {
       }
     },
     onMessage: (data) => {
+      console.log('📨 Raw message:', data);
       handleSocketMessage(data);
     },
     onClose: () => {
       hasJoinedRef.current = false;
       if (!leaveInProgressRef.current) {
         addToast('Disconnected from server. Reconnecting...', 'error');
-        setTimeout(() => {
-          reconnect();
-        }, 2000);
+        setTimeout(reconnect, 2000);
       }
     },
     onError: (error) => {
@@ -80,42 +60,14 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }
   });
 
-  // ===== AUTO SYNC CHECK =====
-  useEffect(() => {
-    if (isConnected && isPlayerReady) {
-      if (syncTimerRef.current) {
-        clearInterval(syncTimerRef.current);
-      }
-      syncTimerRef.current = setInterval(() => {
-        checkSync();
-      }, 3000);
-    }
-    return () => {
-      if (syncTimerRef.current) {
-        clearInterval(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
-    };
-  }, [isConnected, isPlayerReady, currentTime, playerCurrentTime]);
-
-  const checkSync = () => {
-    const diff = Math.abs(playerCurrentTime - currentTime);
-    if (diff > 2) {
-      setIsSynced(false);
-      console.log('🔄 Out of sync - diff:', diff);
-    } else {
-      setIsSynced(true);
-    }
-  };
-
   // ===== SOCKET MESSAGE HANDLER =====
   const handleSocketMessage = (data) => {
     const { type, payload } = data;
-    console.log('📨 Message:', type, payload);
+    console.log(`📨 Message: ${type}`, payload);
 
     switch (type) {
       case 'room_state':
-        console.log('📊 Room state:', payload);
+        console.log('📊 Room state received');
         setRoom(payload);
         setParticipants(payload.participants || []);
         const newIsHost = payload.userId === payload.hostId;
@@ -124,48 +76,45 @@ function Room({ roomState, displayName, userId, onLeave }) {
         setIsPlaying(payload.isPlaying);
         setCurrentTime(payload.currentTime);
         setIsSynced(true);
-        console.log(`👑 User is ${newIsHost ? 'HOST' : 'PARTICIPANT'}`);
         addToast(`You are ${newIsHost ? 'Host 🎬' : 'Participant 👤'}`, 'info');
         break;
 
       case 'user_joined':
-        console.log('👤 User joined:', payload);
         setParticipants(prev => {
           const exists = prev.some(p => p.id === payload.userId);
           if (exists) return prev;
           return [...prev, payload];
         });
-        addToast(`${payload.displayName} joined the room`, 'info');
+        addToast(`${payload.displayName} joined`, 'info');
         break;
 
       case 'user_left':
-        console.log('👤 User left:', payload);
         setParticipants(prev => prev.filter(p => p.id !== payload.userId));
-        addToast(`${payload.displayName} left the room`, 'info');
+        addToast(`${payload.displayName} left`, 'info');
         break;
 
       case 'play':
-        console.log('▶️ Play event received');
+        console.log('▶️ PLAY event received - setting isPlaying to true');
         setIsPlaying(true);
         setIsSynced(true);
         addToast('▶️ Video playing', 'info');
         break;
 
       case 'pause':
-        console.log('⏸️ Pause event received');
+        console.log('⏸️ PAUSE event received - setting isPlaying to false');
         setIsPlaying(false);
         setIsSynced(true);
         addToast('⏸️ Video paused', 'info');
         break;
 
       case 'seek':
-        console.log('⏩ Seek to:', payload.time);
+        console.log('⏩ SEEK event received - time:', payload.time);
         setCurrentTime(payload.time);
         setIsSynced(true);
         break;
 
       case 'change_video':
-        console.log('🎬 Video changed:', payload.videoId);
+        console.log('🎬 CHANGE_VIDEO event received - videoId:', payload.videoId);
         setVideoId(payload.videoId);
         setCurrentTime(0);
         setIsPlaying(false);
@@ -174,7 +123,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
         break;
 
       case 'sync_response':
-        console.log('🔄 Sync response:', payload);
+        console.log('🔄 SYNC_RESPONSE received:', payload);
         setVideoId(payload.videoId);
         setCurrentTime(payload.time);
         setIsPlaying(payload.isPlaying);
@@ -222,9 +171,8 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }, 4000);
   };
 
-  // ===== HOST CONTROLS - ONLY HOST CAN USE =====
+  // ===== HOST CONTROLS =====
   const handlePlay = () => {
-    console.log(`🎯 Play clicked - isHost: ${isHost}`);
     if (!isHost) {
       addToast('🔒 Only Host can play!', 'error');
       return;
@@ -238,7 +186,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
   };
 
   const handlePause = () => {
-    console.log(`🎯 Pause clicked - isHost: ${isHost}`);
     if (!isHost) {
       addToast('🔒 Only Host can pause!', 'error');
       return;
@@ -256,11 +203,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
       addToast('🔒 Only Host can seek!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
-    console.log('📤 Sending SEEK to server:', time);
+    if (!isConnected) return;
     sendMessage('seek', { time });
   };
 
@@ -269,11 +212,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
       addToast('🔒 Only Host can change video!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
-    console.log('📤 Sending CHANGE_VIDEO to server:', newVideoId);
+    if (!isConnected) return;
     sendMessage('change_video', { videoId: newVideoId });
   };
 
@@ -282,47 +221,44 @@ function Room({ roomState, displayName, userId, onLeave }) {
       addToast('🔒 Only Host can remove participants!', 'error');
       return;
     }
-    if (!isConnected) {
-      addToast('Not connected to server', 'error');
-      return;
-    }
+    if (!isConnected) return;
     const target = participants.find(p => p.id === targetUserId);
-    if (target) {
-      if (window.confirm(`Remove ${target.displayName} from the room?`)) {
-        console.log('📤 Sending REMOVE_PARTICIPANT:', targetUserId);
-        sendMessage('remove_participant', { targetUserId });
-      }
+    if (target && window.confirm(`Remove ${target.displayName}?`)) {
+      sendMessage('remove_participant', { targetUserId });
     }
   };
 
-  // ===== GO LIVE / SYNC (Available to everyone) =====
+  // ===== SYNC =====
   const handleSyncRequest = () => {
-    console.log('🔄 Sync requested by:', isHost ? 'Host' : 'Guest');
     if (!isConnected) {
       addToast('Not connected to server', 'error');
       return;
     }
-    console.log('📤 Sending SYNC_REQUEST to server');
+    console.log('🔄 Sending SYNC_REQUEST to server');
     sendMessage('sync_request', {});
-    addToast('🔄 Syncing to current position...', 'info');
+    addToast('🔄 Syncing...', 'info');
   };
 
   // ===== PLAYER TIME UPDATE =====
   const handlePlayerTimeUpdate = (time) => {
     setPlayerCurrentTime(time);
+    // Check sync status
+    const diff = Math.abs(time - currentTime);
+    if (diff > 2) {
+      setIsSynced(false);
+    } else {
+      setIsSynced(true);
+    }
   };
 
-  // ===== LEAVE ROOM =====
   const handleLeave = () => {
-    if (window.confirm('Are you sure you want to leave the room?')) {
+    if (window.confirm('Leave the room?')) {
       leaveInProgressRef.current = true;
-      console.log('👋 Leaving room...');
       onLeave();
       navigate('/');
     }
   };
 
-  // ===== COPY ROOM CODE =====
   const copyRoomCode = () => {
     navigator.clipboard.writeText(room.roomCode);
     addToast('✅ Room code copied!', 'success');
@@ -334,17 +270,15 @@ function Room({ roomState, displayName, userId, onLeave }) {
     addToast('✅ Room link copied!', 'success');
   };
 
-  // ===== RENDER =====
   return (
     <div className="room-container">
-      {/* HEADER */}
       <div className="room-header">
         <div className="room-info">
           <h2>🎬 Watch Party</h2>
           <div className="room-code-wrapper">
-            <span className="room-code">Room: {room?.roomCode || 'Loading...'}</span>
-            <button onClick={copyRoomCode} className="icon-btn" title="Copy room code">📋</button>
-            <button onClick={copyRoomLink} className="icon-btn" title="Copy room link">🔗</button>
+            <span className="room-code">Room: {room?.roomCode}</span>
+            <button onClick={copyRoomCode} className="icon-btn">📋</button>
+            <button onClick={copyRoomLink} className="icon-btn">🔗</button>
           </div>
           <span className={`status ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? '● Connected' : '○ Disconnected'}
@@ -359,7 +293,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
         <button onClick={handleLeave} className="btn-leave">🚪 Leave</button>
       </div>
 
-      {/* CONTENT */}
       <div className="room-content">
         <div className="video-section">
           <VideoPlayer
@@ -389,7 +322,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
         </div>
       </div>
 
-      {/* TOASTS */}
       <Toast toasts={toasts} />
 
       <style>{`
@@ -401,8 +333,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
           display: flex;
           flex-direction: column;
         }
-
-        /* HEADER */
         .room-header {
           display: flex;
           justify-content: space-between;
@@ -516,8 +446,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
           background: #f44336;
           color: white;
         }
-
-        /* CONTENT */
         .room-content {
           display: grid;
           grid-template-columns: 2fr 1fr;
@@ -541,8 +469,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
           padding: 16px;
           overflow-y: auto;
         }
-
-        /* TOASTS */
         .toast-container {
           position: fixed;
           top: 20px;
@@ -583,8 +509,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
             opacity: 1;
           }
         }
-
-        /* RESPONSIVE */
         @media (max-width: 768px) {
           .room-container {
             padding: 12px;
