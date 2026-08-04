@@ -26,7 +26,6 @@ function VideoPlayer({
   const isHostRef = useRef(isHost);
   const isPlayingRef = useRef(isPlaying);
   const currentTimeRef = useRef(currentTime);
-  const isProcessingHostEventRef = useRef(false);
 
   useEffect(() => {
     isHostRef.current = isHost;
@@ -73,9 +72,9 @@ function VideoPlayer({
         videoId: videoId,
         playerVars: {
           autoplay: 0,
-          controls: 0,        // ❌ NO CONTROLS - HOST/GUEST DONO KE LIYE
-          disablekb: 1,       // ❌ NO KEYBOARD CONTROLS
-          fs: 0,              // ❌ NO FULLSCREEN BUTTON
+          controls: 0,        // ❌ NO CONTROLS - HOST AUR GUEST DONO KE LIYE
+          disablekb: 1,       // ❌ NO KEYBOARD
+          fs: 0,              // ❌ NO FULLSCREEN
           rel: 0,
           modestbranding: 1,
           enablejsapi: 1,
@@ -109,7 +108,7 @@ function VideoPlayer({
               } catch (e) {}
             }
             
-            // 🔒 DISABLE ALL YOUTUBE CONTROLS - Host bhi controls nahi use kar sakta
+            // 🔒 YOUTUBE CONTROLS DISABLED FOR EVERYONE
             // Agar koi bhi (host ya guest) YouTube player se play/pause kare toh revert
             if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
               console.log('⛔ YouTube controls detected - pausing');
@@ -121,7 +120,7 @@ function VideoPlayer({
               return;
             }
             
-            // 🚫 Host bhi YouTube controls use nahi kar sakta
+            // Kisi ko bhi YouTube player se control nahi karne denge
             // Sirf manual buttons se control hoga
           },
           onError: (event) => {
@@ -265,10 +264,10 @@ function VideoPlayer({
           </div>
         )}
         
-        {/* 🚫 YouTube Controls Disabled Overlay - Host ko bhi dikhega */}
+        {/* 🚫 Host Overlay - YouTube Controls Disabled */}
         {isHost && isPlayerReady && (
           <div className="host-overlay">
-            <div className="host-info">🎮 Use Manual Controls Below</div>
+            <div className="host-info">🎮 Use Controls Below</div>
           </div>
         )}
         
