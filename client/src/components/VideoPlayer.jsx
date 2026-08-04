@@ -106,10 +106,10 @@ function VideoPlayer({
             
             if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
               console.log('▶️ Host: Player started playing');
-              onPlay();
+              
             } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
               console.log('⏸️ Host: Player paused');
-              onPause();
+              
             }
           },
           onVideoProgress: () => {

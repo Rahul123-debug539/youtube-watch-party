@@ -426,7 +426,7 @@ async function handleChangeVideo(socketId, payload) {
   room.currentVideo = videoId;
   room.currentTime = 0;
   room.isPlaying = false;
-  broadcastToRoom(client.roomCode, 'change_video', { videoId }, socketId);
+  broadcastToRoom(client.roomCode, 'change_video', { videoId },);
 }
 
 // ===== SYNC =====

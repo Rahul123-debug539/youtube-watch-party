@@ -19,7 +19,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
   
   console.log('🔍 Room mounted:', { isHost, userId, roomState });
 
-  const wsUrl = 'ws://youtube-watch-party-s7p4.onrender.com/ws';
+  const wsUrl = 'wss://youtube-watch-party-s7p4.onrender.com/ws';
 
   const { sendMessage, isConnected } = useWebSocket(wsUrl, {
     onOpen: () => {

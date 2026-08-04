@@ -26,6 +26,9 @@ function Landing({ onJoin }) {
 
     try {
       console.log('Creating room with:', { displayName, videoUrl });
+
+      console.log("API_URL =", API_URL);
+      console.log("FINAL URL =", `${API_URL}/rooms/create`);
       
       const response = await axios.post(`${API_URL}/rooms/create`, {
         displayName: displayName.trim(),
@@ -47,10 +50,12 @@ function Landing({ onJoin }) {
       }, displayName.trim(), hostId);
 
       navigate(`/room/${roomCode}`);
-    } catch (err) {
-      console.error('Create room error:', err);
-      setError(err.response?.data?.error || 'Failed to create room');
-    } finally {
+    }catch (err) {
+  console.log("STATUS:", err.response?.status);
+  console.log("DATA:", err.response?.data);
+  console.log("URL:", err.config?.url);
+  console.error(err);
+} finally {
       setLoading(false);
     }
   };
