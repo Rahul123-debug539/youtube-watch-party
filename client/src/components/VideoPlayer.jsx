@@ -23,25 +23,21 @@ function VideoPlayer({
   const [volume, setVolume] = useState(100);
   const [playerTime, setPlayerTime] = useState(0);
   
-  // Refs for latest values
   const isHostRef = useRef(isHost);
   const isPlayingRef = useRef(isPlaying);
   const currentTimeRef = useRef(currentTime);
-  const isProcessingHostEventRef = useRef(false); // Prevent infinite loops
+  const isProcessingHostEventRef = useRef(false);
 
   useEffect(() => {
     isHostRef.current = isHost;
-    console.log('🎯 isHost updated:', isHost);
   }, [isHost]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
-    console.log('🎯 isPlaying updated:', isPlaying);
   }, [isPlaying]);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
-    console.log('🎯 currentTime updated:', currentTime);
   }, [currentTime]);
 
   // Load YouTube API
@@ -77,9 +73,9 @@ function VideoPlayer({
         videoId: videoId,
         playerVars: {
           autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
+          controls: 0,        // ❌ NO CONTROLS - HOST/GUEST DONO KE LIYE
+          disablekb: 1,       // ❌ NO KEYBOARD CONTROLS
+          fs: 0,              // ❌ NO FULLSCREEN BUTTON
           rel: 0,
           modestbranding: 1,
           enablejsapi: 1,
@@ -101,7 +97,6 @@ function VideoPlayer({
           onStateChange: (event) => {
             const state = event.data;
             console.log('🎬 Player state changed:', state);
-            console.log('🎬 isHost:', isHostRef.current, 'isPlaying:', isPlayingRef.current);
             
             // Update player time
             if (playerRef.current) {
@@ -114,41 +109,20 @@ function VideoPlayer({
               } catch (e) {}
             }
             
-            // 🔒 GUEST - IGNORE their actions, revert immediately
-            if (!isHostRef.current) {
-              console.log('🔒 Guest - ignoring state change');
-              // If guest tries to play, pause it
-              if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
-                console.log('⛔ Guest tried to play - pausing');
-                event.target.pauseVideo();
-              }
-              // If guest tries to pause, play it
-              else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
-                console.log('⛔ Guest tried to pause - playing');
-                event.target.playVideo();
-              }
+            // 🔒 DISABLE ALL YOUTUBE CONTROLS - Host bhi controls nahi use kar sakta
+            // Agar koi bhi (host ya guest) YouTube player se play/pause kare toh revert
+            if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
+              console.log('⛔ YouTube controls detected - pausing');
+              event.target.pauseVideo();
+              return;
+            } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
+              console.log('⛔ YouTube controls detected - playing');
+              event.target.playVideo();
               return;
             }
             
-            // ✅ HOST - send events to server
-            // Only trigger if not already processing and if state actually changed
-            if (!isProcessingHostEventRef.current) {
-              isProcessingHostEventRef.current = true;
-              
-              if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
-                console.log('▶️ Host: Player started playing - sending to server');
-                onPlay();
-              } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
-                console.log('⏸️ Host: Player paused - sending to server');
-                onPause();
-              } else if (state === window.YT.PlayerState.ENDED) {
-                console.log('⏹️ Video ended');
-              }
-              
-              setTimeout(() => {
-                isProcessingHostEventRef.current = false;
-              }, 100);
-            }
+            // 🚫 Host bhi YouTube controls use nahi kar sakta
+            // Sirf manual buttons se control hoga
           },
           onError: (event) => {
             console.error('🎬 YouTube Player error:', event);
@@ -175,26 +149,22 @@ function VideoPlayer({
     }
   }, [videoId]);
 
-  // ===== SYNC: Play/Pause - FIXED =====
+  // ===== SYNC: Play/Pause =====
   useEffect(() => {
     if (!playerReadyRef.current || !playerRef.current) {
-      console.log('⏳ Player not ready, skipping play/pause sync');
       return;
     }
 
     try {
       const playerState = playerRef.current.getPlayerState();
-      console.log('🔄 Play/Pause Sync - isPlaying:', isPlaying, 'playerState:', playerState);
+      console.log('🔄 Sync - isPlaying:', isPlaying, 'playerState:', playerState);
       
-      // Only sync if player state doesn't match what we want
       if (isPlaying && playerState !== window.YT.PlayerState.PLAYING) {
         console.log('▶️ Syncing play');
         playerRef.current.playVideo();
       } else if (!isPlaying && playerState === window.YT.PlayerState.PLAYING) {
         console.log('⏸️ Syncing pause');
         playerRef.current.pauseVideo();
-      } else {
-        console.log('✅ Play/Pause state already correct');
       }
     } catch (error) {
       console.error('Play/pause sync error:', error);
@@ -203,17 +173,14 @@ function VideoPlayer({
 
   // ===== SYNC: Seek =====
   useEffect(() => {
-    if (!playerReadyRef.current || !playerRef.current) {
-      console.log('⏳ Player not ready, skipping seek sync');
-      return;
-    }
+    if (!playerReadyRef.current || !playerRef.current) return;
 
     try {
       const currentTimeInPlayer = playerRef.current.getCurrentTime();
       const diff = Math.abs(currentTimeInPlayer - currentTime);
       
       if (diff > 0.5) {
-        console.log('⏩ Syncing seek to:', currentTime, 'current:', currentTimeInPlayer, 'diff:', diff);
+        console.log('⏩ Syncing seek to:', currentTime);
         playerRef.current.seekTo(currentTime, true);
       }
     } catch (error) {
@@ -295,6 +262,13 @@ function VideoPlayer({
           <div className="guest-overlay">
             <div className="guest-lock">🔒</div>
             <span>View Only Mode</span>
+          </div>
+        )}
+        
+        {/* 🚫 YouTube Controls Disabled Overlay - Host ko bhi dikhega */}
+        {isHost && isPlayerReady && (
+          <div className="host-overlay">
+            <div className="host-info">🎮 Use Manual Controls Below</div>
           </div>
         )}
         
@@ -467,6 +441,27 @@ function VideoPlayer({
           background: rgba(0, 0, 0, 0.6);
           padding: 4px 16px;
           border-radius: 20px;
+        }
+        .host-overlay {
+          position: absolute;
+          bottom: 60px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 6px 16px;
+          border-radius: 20px;
+          background: rgba(0, 0, 0, 0.75);
+          border: 1px solid rgba(255, 215, 0, 0.3);
+          color: #ffd700;
+          font-size: 12px;
+          font-weight: 500;
+          z-index: 5;
+          backdrop-filter: blur(5px);
+          pointer-events: none;
+        }
+        .host-overlay .host-info {
+          display: flex;
+          align-items: center;
+          gap: 6px;
         }
         .sync-badge {
           position: absolute;
@@ -668,6 +663,11 @@ function VideoPlayer({
           }
           .guest-overlay span {
             font-size: 12px;
+          }
+          .host-overlay {
+            bottom: 50px;
+            font-size: 10px;
+            padding: 4px 12px;
           }
         }
       `}</style>
