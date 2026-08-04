@@ -89,7 +89,7 @@ app.get("/", (req, res) => {
   });
 });
 
-app.post('/api/rooms/', (req, res) => {
+app.post('/api/rooms/create', (req, res) => {
   try {
     const { displayName, videoUrl } = req.body;
     
