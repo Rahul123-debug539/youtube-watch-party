@@ -56,35 +56,28 @@ function broadcastToRoom(roomCode, type, payload, excludeSocketId = null) {
   const room = rooms.get(roomCode);
   if (!room) {
     console.log(`⚠️ Room ${roomCode} not found`);
-    return;
+    return 0;
   }
 
   const message = JSON.stringify({ type, payload });
   let count = 0;
 
   console.log(`📢 Broadcasting ${type} to room ${roomCode}`);
-  console.log(`👥 Participants in room:`, Array.from(room.participants.keys()));
 
   for (const [userId, data] of room.participants.entries()) {
     const socketId = data.socketId;
-    
-    // Skip if no socket or excluded
-    if (!socketId || socketId === excludeSocketId) {
-      console.log(`⏭️ Skipping ${data.displayName} (${socketId})`);
-      continue;
-    }
+    if (!socketId || socketId === excludeSocketId) continue;
     
     const client = clients.get(socketId);
     if (client && client.ws.readyState === 1) {
       client.ws.send(message);
       count++;
-      console.log(`📤 Sent ${type} to ${data.displayName} (${socketId})`);
-    } else {
-      console.log(`⚠️ Client ${socketId} not connected`);
+      console.log(`✅ Sent ${type} to ${data.displayName}`);
     }
   }
 
   console.log(`📤 Broadcast ${type} to ${count} clients`);
+  return count;
 }
 
 function sendError(ws, message) {
@@ -94,7 +87,6 @@ function sendError(ws, message) {
 }
 
 // ============ API ROUTES ============
-
 app.post('/api/rooms/create', (req, res) => {
   try {
     const { displayName, videoUrl } = req.body;
@@ -182,7 +174,6 @@ app.get('/health', (req, res) => {
 });
 
 // ============ WEBSOCKET SERVER ============
-
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', (ws) => {
@@ -216,7 +207,6 @@ wss.on('connection', (ws) => {
 });
 
 // ============ MESSAGE HANDLERS ============
-
 async function handleMessage(socketId, data) {
   const client = clients.get(socketId);
   if (!client) return;
@@ -225,33 +215,17 @@ async function handleMessage(socketId, data) {
   console.log(`📨 ${type} from ${socketId}`);
 
   switch (type) {
-    case 'join_room':
-      await handleJoin(socketId, payload);
-      break;
-    case 'play':
-      await handlePlay(socketId);
-      break;
-    case 'pause':
-      await handlePause(socketId);
-      break;
-    case 'seek':
-      await handleSeek(socketId, payload);
-      break;
-    case 'change_video':
-      await handleChangeVideo(socketId, payload);
-      break;
-    case 'sync_request':
-      await handleSync(socketId);
-      break;
-    case 'remove_participant':
-      await handleRemove(socketId, payload);
-      break;
-    default:
-      sendError(client.ws, 'Unknown event');
+    case 'join_room': await handleJoin(socketId, payload); break;
+    case 'play': await handlePlay(socketId); break;
+    case 'pause': await handlePause(socketId); break;
+    case 'seek': await handleSeek(socketId, payload); break;
+    case 'change_video': await handleChangeVideo(socketId, payload); break;
+    case 'sync_request': await handleSync(socketId); break;
+    case 'remove_participant': await handleRemove(socketId, payload); break;
+    default: sendError(client.ws, 'Unknown event');
   }
 }
 
-// ===== JOIN =====
 async function handleJoin(socketId, payload) {
   const { roomCode, displayName } = payload;
   const client = clients.get(socketId);
@@ -265,7 +239,6 @@ async function handleJoin(socketId, payload) {
     return;
   }
 
-  // Check if user already exists
   let userId = null;
   let userRole = 'participant';
   
@@ -277,7 +250,6 @@ async function handleJoin(socketId, payload) {
     }
   }
 
-  // New user
   if (!userId) {
     userId = uuidv4();
     room.participants.set(userId, {
@@ -287,7 +259,6 @@ async function handleJoin(socketId, payload) {
     });
     console.log(`✅ New participant: ${displayName}`);
   } else {
-    // Update socket
     const participant = room.participants.get(userId);
     participant.socketId = socketId;
     console.log(`🔄 Existing user: ${displayName}`);
@@ -296,7 +267,6 @@ async function handleJoin(socketId, payload) {
   client.roomCode = roomCode;
   client.userId = userId;
 
-  // Send room state to this user
   const participants = Array.from(room.participants.entries()).map(([id, data]) => ({
     id,
     displayName: data.displayName,
@@ -314,10 +284,7 @@ async function handleJoin(socketId, payload) {
     userRole: userRole
   };
 
-  console.log(`📤 Sending room_state to ${displayName}`);
   sendToClient(socketId, 'room_state', roomState);
-
-  // Broadcast user joined to others
   broadcastToRoom(roomCode, 'user_joined', {
     userId,
     displayName,
@@ -325,12 +292,9 @@ async function handleJoin(socketId, payload) {
   }, socketId);
 }
 
-// ===== PLAY - FIXED =====
 async function handlePlay(socketId) {
   const client = clients.get(socketId);
   if (!client) return;
-
-  console.log(`🎯 PLAY from ${socketId}`);
 
   const room = rooms.get(client.roomCode);
   if (!room) {
@@ -338,33 +302,25 @@ async function handlePlay(socketId) {
     return;
   }
 
-  // Check if user is HOST
   const isHost = client.userId === room.hostId;
-  console.log(`🔍 User ${client.userId} isHost: ${isHost}`);
-
   if (!isHost) {
-    console.log(`❌ Non-host tried to play!`);
     sendError(client.ws, 'Only host can control playback');
     return;
   }
 
-  // Update room state
   room.isPlaying = true;
-  console.log(`▶️ Play - Room ${client.roomCode} state updated`);
+  console.log(`▶️ Play - Room ${client.roomCode}`);
 
-  // Broadcast to ALL clients (including host)
+  // Broadcast to ALL including host
   broadcastToRoom(client.roomCode, 'play', { 
     timestamp: Date.now(),
     isPlaying: true 
   }, null);
 }
 
-// ===== PAUSE - FIXED =====
 async function handlePause(socketId) {
   const client = clients.get(socketId);
   if (!client) return;
-
-  console.log(`🎯 PAUSE from ${socketId}`);
 
   const room = rooms.get(client.roomCode);
   if (!room) {
@@ -372,34 +328,25 @@ async function handlePause(socketId) {
     return;
   }
 
-  // Check if user is HOST
   const isHost = client.userId === room.hostId;
-  console.log(`🔍 User ${client.userId} isHost: ${isHost}`);
-
   if (!isHost) {
-    console.log(`❌ Non-host tried to pause!`);
     sendError(client.ws, 'Only host can control playback');
     return;
   }
 
-  // Update room state
   room.isPlaying = false;
-  console.log(`⏸️ Pause - Room ${client.roomCode} state updated`);
+  console.log(`⏸️ Pause - Room ${client.roomCode}`);
 
-  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'pause', { 
     timestamp: Date.now(),
     isPlaying: false 
   }, null);
 }
 
-// ===== SEEK - FIXED =====
 async function handleSeek(socketId, payload) {
   const { time } = payload;
   const client = clients.get(socketId);
   if (!client) return;
-
-  console.log(`🎯 SEEK from ${socketId} to ${time}`);
 
   const room = rooms.get(client.roomCode);
   if (!room) {
@@ -407,32 +354,25 @@ async function handleSeek(socketId, payload) {
     return;
   }
 
-  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   if (!isHost) {
-    console.log(`❌ Non-host tried to seek!`);
     sendError(client.ws, 'Only host can seek');
     return;
   }
 
-  // Update room state
   room.currentTime = time;
-  console.log(`⏩ Seek - Room ${client.roomCode} time updated to ${time}`);
+  console.log(`⏩ Seek - Room ${client.roomCode} to ${time}`);
 
-  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'seek', { 
     time,
     timestamp: Date.now()
   }, null);
 }
 
-// ===== CHANGE VIDEO - FIXED =====
 async function handleChangeVideo(socketId, payload) {
   const { videoId } = payload;
   const client = clients.get(socketId);
   if (!client) return;
-
-  console.log(`🎯 CHANGE_VIDEO from ${socketId} to ${videoId}`);
 
   const room = rooms.get(client.roomCode);
   if (!room) {
@@ -440,28 +380,23 @@ async function handleChangeVideo(socketId, payload) {
     return;
   }
 
-  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   if (!isHost) {
-    console.log(`❌ Non-host tried to change video!`);
     sendError(client.ws, 'Only host can change video');
     return;
   }
 
-  // Update room state
   room.currentVideo = videoId;
   room.currentTime = 0;
   room.isPlaying = false;
-  console.log(`🎬 Video changed - Room ${client.roomCode}`);
+  console.log(`🎬 Video changed - Room ${client.roomCode} to ${videoId}`);
 
-  // Broadcast to ALL clients (including host)
   broadcastToRoom(client.roomCode, 'change_video', { 
     videoId,
     timestamp: Date.now()
   }, null);
 }
 
-// ===== SYNC =====
 async function handleSync(socketId) {
   const client = clients.get(socketId);
   if (!client || !client.roomCode) return;
@@ -478,7 +413,6 @@ async function handleSync(socketId) {
   });
 }
 
-// ===== REMOVE PARTICIPANT =====
 async function handleRemove(socketId, payload) {
   const { targetUserId } = payload;
   const client = clients.get(socketId);
@@ -503,7 +437,6 @@ async function handleRemove(socketId, payload) {
     displayName: participant.displayName
   });
 
-  // Disconnect the user
   if (participant.socketId) {
     const targetClient = clients.get(participant.socketId);
     if (targetClient) {
@@ -515,7 +448,6 @@ async function handleRemove(socketId, payload) {
   }
 }
 
-// ===== DISCONNECT =====
 function handleDisconnect(socketId) {
   const client = clients.get(socketId);
   if (!client) return;
@@ -549,7 +481,6 @@ function handleDisconnect(socketId) {
   console.log(`🔌 Disconnected: ${socketId}`);
 }
 
-// ============ START ============
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 WebSocket on ws://localhost:${PORT}/ws`);

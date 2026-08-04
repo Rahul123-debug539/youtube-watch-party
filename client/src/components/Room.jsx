@@ -8,7 +8,6 @@ import Toast from './Toast';
 function Room({ roomState, displayName, userId, onLeave }) {
   const navigate = useNavigate();
   
-  // ===== STATE =====
   const [room, setRoom] = useState(roomState);
   const [participants, setParticipants] = useState(roomState.participants || []);
   const [isHost, setIsHost] = useState(roomState.userRole === 'host');
@@ -20,15 +19,12 @@ function Room({ roomState, displayName, userId, onLeave }) {
   const [toasts, setToasts] = useState([]);
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
   
-  // ===== REFS =====
   const toastIdCounter = useRef(0);
   const hasJoinedRef = useRef(false);
-  const syncTimerRef = useRef(null);
   const leaveInProgressRef = useRef(false);
   
   console.log('🔍 Room mounted:', { isHost, videoId, isPlaying, currentTime });
 
-  // WebSocket URL
   const wsUrl = import.meta.env.VITE_WS_URL || 'wss://youtube-watch-party-s7p4.onrender.com/ws';
 
   const { sendMessage, isConnected, reconnect } = useWebSocket(wsUrl, {
@@ -44,7 +40,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
       }
     },
     onMessage: (data) => {
-      console.log('📨 Raw message:', data);
       handleSocketMessage(data);
     },
     onClose: () => {
@@ -60,7 +55,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }
   });
 
-  // ===== SOCKET MESSAGE HANDLER =====
   const handleSocketMessage = (data) => {
     const { type, payload } = data;
     console.log(`📨 Message: ${type}`, payload);
@@ -162,7 +156,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }
   };
 
-  // ===== TOAST =====
   const addToast = (message, type = 'info') => {
     const id = toastIdCounter.current++;
     setToasts(prev => [...prev, { id, message, type }]);
@@ -173,6 +166,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
 
   // ===== HOST CONTROLS =====
   const handlePlay = () => {
+    console.log(`🎯 Play clicked - isHost: ${isHost}`);
     if (!isHost) {
       addToast('🔒 Only Host can play!', 'error');
       return;
@@ -186,6 +180,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
   };
 
   const handlePause = () => {
+    console.log(`🎯 Pause clicked - isHost: ${isHost}`);
     if (!isHost) {
       addToast('🔒 Only Host can pause!', 'error');
       return;
@@ -228,7 +223,6 @@ function Room({ roomState, displayName, userId, onLeave }) {
     }
   };
 
-  // ===== SYNC =====
   const handleSyncRequest = () => {
     if (!isConnected) {
       addToast('Not connected to server', 'error');
@@ -239,10 +233,8 @@ function Room({ roomState, displayName, userId, onLeave }) {
     addToast('🔄 Syncing...', 'info');
   };
 
-  // ===== PLAYER TIME UPDATE =====
   const handlePlayerTimeUpdate = (time) => {
     setPlayerCurrentTime(time);
-    // Check sync status
     const diff = Math.abs(time - currentTime);
     if (diff > 2) {
       setIsSynced(false);

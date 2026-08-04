@@ -30,17 +30,14 @@ function VideoPlayer({
 
   useEffect(() => {
     isHostRef.current = isHost;
-    console.log('🎯 isHost updated:', isHost);
   }, [isHost]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
-    console.log('🎯 isPlaying updated:', isPlaying);
   }, [isPlaying]);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
-    console.log('🎯 currentTime updated:', currentTime);
   }, [currentTime]);
 
   // Load YouTube API
@@ -99,7 +96,7 @@ function VideoPlayer({
           },
           onStateChange: (event) => {
             const state = event.data;
-            console.log('🎬 Player state:', state, 'isHost:', isHostRef.current);
+            console.log('🎬 Player state:', state, 'isHost:', isHostRef.current, 'isPlaying:', isPlayingRef.current);
             
             // Update player time
             if (playerRef.current) {
@@ -112,31 +109,31 @@ function VideoPlayer({
               } catch (e) {}
             }
             
-            // 🔒 ONLY HOST CAN CONTROL - IGNORE GUEST ACTIONS
+            // 🔒 GUEST - IGNORE their actions, revert immediately
             if (!isHostRef.current) {
-              console.log('🔒 Guest attempted to control player - IGNORED');
-              // If guest tries to play/pause, revert immediately
+              console.log('🔒 Guest - ignoring state change');
+              // If guest tries to play, pause it
               if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
-                console.log('⛔ Guest tried to play - pausing immediately');
+                console.log('⛔ Guest tried to play - pausing');
                 event.target.pauseVideo();
-              } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
-                console.log('⛔ Guest tried to pause - playing immediately');
+              }
+              // If guest tries to pause, play it
+              else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
+                console.log('⛔ Guest tried to pause - playing');
                 event.target.playVideo();
               }
               return;
             }
             
-            // Only host can trigger events
+            // ✅ HOST - send events to server
             if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
-              console.log('▶️ Host: Player started playing');
+              console.log('▶️ Host: Player started playing - sending to server');
               onPlay();
             } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
-              console.log('⏸️ Host: Player paused');
+              console.log('⏸️ Host: Player paused - sending to server');
               onPause();
             } else if (state === window.YT.PlayerState.ENDED) {
               console.log('⏹️ Video ended');
-              // Video ended - pause and reset
-              setIsPlaying(false);
             }
           },
           onError: (event) => {
@@ -149,7 +146,7 @@ function VideoPlayer({
     }
   };
 
-  // Handle video changes
+  // ===== SYNC: Video Change =====
   useEffect(() => {
     if (playerReadyRef.current && playerRef.current) {
       try {
@@ -164,10 +161,9 @@ function VideoPlayer({
     }
   }, [videoId]);
 
-  // Handle play/pause sync - FIXED
+  // ===== SYNC: Play/Pause =====
   useEffect(() => {
     if (!playerReadyRef.current || !playerRef.current) {
-      console.log('⏳ Player not ready yet, skipping sync');
       return;
     }
 
@@ -181,31 +177,23 @@ function VideoPlayer({
       } else if (!isPlaying && playerState === window.YT.PlayerState.PLAYING) {
         console.log('⏸️ Syncing pause');
         playerRef.current.pauseVideo();
-      } else {
-        console.log('✅ Already in correct state');
       }
     } catch (error) {
       console.error('Play/pause sync error:', error);
     }
   }, [isPlaying]);
 
-  // Handle seek sync - FIXED
+  // ===== SYNC: Seek =====
   useEffect(() => {
-    if (!playerReadyRef.current || !playerRef.current) {
-      console.log('⏳ Player not ready yet, skipping seek sync');
-      return;
-    }
+    if (!playerReadyRef.current || !playerRef.current) return;
 
     try {
       const currentTimeInPlayer = playerRef.current.getCurrentTime();
       const diff = Math.abs(currentTimeInPlayer - currentTime);
-      console.log('🔄 Seek check - currentTime:', currentTime, 'playerTime:', currentTimeInPlayer, 'diff:', diff);
       
       if (diff > 0.5) {
         console.log('⏩ Syncing seek to:', currentTime);
         playerRef.current.seekTo(currentTime, true);
-      } else {
-        console.log('✅ Already at correct time');
       }
     } catch (error) {
       console.error('Seek sync error:', error);
@@ -255,7 +243,6 @@ function VideoPlayer({
     }
   };
 
-  // Format time
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -267,12 +254,14 @@ function VideoPlayer({
     <div className="video-player-container">
       <div className="player-wrapper">
         <div id="youtube-player" className="youtube-player"></div>
+        
         {!isConnected && (
           <div className="overlay">
             <div className="spinner"></div>
             <p>Reconnecting...</p>
           </div>
         )}
+        
         {!isPlayerReady && isConnected && (
           <div className="overlay">
             <div className="spinner"></div>
@@ -280,15 +269,13 @@ function VideoPlayer({
           </div>
         )}
         
-        {/* 🔒 Guest Overlay - Blocks clicks on video */}
         {!isHost && isPlayerReady && (
-          <div className="guest-overlay" title="🔒 Only Host can control playback">
+          <div className="guest-overlay">
             <div className="guest-lock">🔒</div>
             <span>View Only Mode</span>
           </div>
         )}
         
-        {/* Sync Status Badge */}
         {isConnected && isPlayerReady && (
           <div className="sync-badge">
             <span>{isSynced ? '✅ Synced' : '🔄 Out of Sync'}</span>
@@ -308,7 +295,7 @@ function VideoPlayer({
             onClick={onPlay}
             disabled={!isHost || !isConnected}
             className={`control-btn play-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only Host can play' : 'Play'}
+            title={!isHost ? '🔒 Only Host can play' : '▶️ Play'}
           >
             ▶ Play
           </button>
@@ -316,7 +303,7 @@ function VideoPlayer({
             onClick={onPause}
             disabled={!isHost || !isConnected}
             className={`control-btn pause-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only Host can pause' : 'Pause'}
+            title={!isHost ? '🔒 Only Host can pause' : '⏸️ Pause'}
           >
             ⏸ Pause
           </button>
@@ -327,13 +314,12 @@ function VideoPlayer({
             onClick={() => setShowChangeVideo(!showChangeVideo)}
             disabled={!isHost || !isConnected}
             className={`control-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only Host can change video' : 'Change video'}
+            title={!isHost ? '🔒 Only Host can change video' : '📺 Change Video'}
           >
             📺 Change Video
           </button>
         </div>
 
-        {/* GO LIVE Button - For everyone */}
         <div className="control-group">
           <button
             onClick={handleGoLive}
@@ -439,7 +425,7 @@ function VideoPlayer({
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          background: rgba(0, 0, 0, 0.3);
+          background: rgba(0, 0, 0, 0.4);
           color: white;
           gap: 8px;
           z-index: 5;
@@ -520,6 +506,7 @@ function VideoPlayer({
         .control-btn:hover:not(:disabled) {
           background: #6c63ff;
           border-color: #6c63ff;
+          color: white;
         }
         .control-btn:disabled {
           opacity: 0.4;
@@ -530,13 +517,13 @@ function VideoPlayer({
           opacity: 0.4;
           cursor: not-allowed;
         }
-        .control-btn.play-btn:hover:not(:disabled) {
-          background: #4caf50;
-          border-color: #4caf50;
+        .play-btn:hover:not(:disabled) {
+          background: #4caf50 !important;
+          border-color: #4caf50 !important;
         }
-        .control-btn.pause-btn:hover:not(:disabled) {
-          background: #ff6b6b;
-          border-color: #ff6b6b;
+        .pause-btn:hover:not(:disabled) {
+          background: #ff6b6b !important;
+          border-color: #ff6b6b !important;
         }
         .go-live-btn {
           background: #2a2a3a;
@@ -610,8 +597,7 @@ function VideoPlayer({
           outline: none;
           border-color: #6c63ff;
         }
-        .btn-submit,
-        .btn-cancel {
+        .btn-submit, .btn-cancel {
           padding: 8px 16px;
           border: none;
           border-radius: 6px;
