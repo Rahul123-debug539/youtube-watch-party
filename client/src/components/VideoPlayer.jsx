@@ -27,17 +27,21 @@ function VideoPlayer({
   const isHostRef = useRef(isHost);
   const isPlayingRef = useRef(isPlaying);
   const currentTimeRef = useRef(currentTime);
+  const isProcessingHostEventRef = useRef(false); // Prevent infinite loops
 
   useEffect(() => {
     isHostRef.current = isHost;
+    console.log('🎯 isHost updated:', isHost);
   }, [isHost]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
+    console.log('🎯 isPlaying updated:', isPlaying);
   }, [isPlaying]);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
+    console.log('🎯 currentTime updated:', currentTime);
   }, [currentTime]);
 
   // Load YouTube API
@@ -96,7 +100,8 @@ function VideoPlayer({
           },
           onStateChange: (event) => {
             const state = event.data;
-            console.log('🎬 Player state:', state, 'isHost:', isHostRef.current, 'isPlaying:', isPlayingRef.current);
+            console.log('🎬 Player state changed:', state);
+            console.log('🎬 isHost:', isHostRef.current, 'isPlaying:', isPlayingRef.current);
             
             // Update player time
             if (playerRef.current) {
@@ -126,14 +131,23 @@ function VideoPlayer({
             }
             
             // ✅ HOST - send events to server
-            if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
-              console.log('▶️ Host: Player started playing - sending to server');
-              onPlay();
-            } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
-              console.log('⏸️ Host: Player paused - sending to server');
-              onPause();
-            } else if (state === window.YT.PlayerState.ENDED) {
-              console.log('⏹️ Video ended');
+            // Only trigger if not already processing and if state actually changed
+            if (!isProcessingHostEventRef.current) {
+              isProcessingHostEventRef.current = true;
+              
+              if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
+                console.log('▶️ Host: Player started playing - sending to server');
+                onPlay();
+              } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
+                console.log('⏸️ Host: Player paused - sending to server');
+                onPause();
+              } else if (state === window.YT.PlayerState.ENDED) {
+                console.log('⏹️ Video ended');
+              }
+              
+              setTimeout(() => {
+                isProcessingHostEventRef.current = false;
+              }, 100);
             }
           },
           onError: (event) => {
@@ -161,22 +175,26 @@ function VideoPlayer({
     }
   }, [videoId]);
 
-  // ===== SYNC: Play/Pause =====
+  // ===== SYNC: Play/Pause - FIXED =====
   useEffect(() => {
     if (!playerReadyRef.current || !playerRef.current) {
+      console.log('⏳ Player not ready, skipping play/pause sync');
       return;
     }
 
     try {
       const playerState = playerRef.current.getPlayerState();
-      console.log('🔄 Sync check - isPlaying:', isPlaying, 'playerState:', playerState);
+      console.log('🔄 Play/Pause Sync - isPlaying:', isPlaying, 'playerState:', playerState);
       
+      // Only sync if player state doesn't match what we want
       if (isPlaying && playerState !== window.YT.PlayerState.PLAYING) {
         console.log('▶️ Syncing play');
         playerRef.current.playVideo();
       } else if (!isPlaying && playerState === window.YT.PlayerState.PLAYING) {
         console.log('⏸️ Syncing pause');
         playerRef.current.pauseVideo();
+      } else {
+        console.log('✅ Play/Pause state already correct');
       }
     } catch (error) {
       console.error('Play/pause sync error:', error);
@@ -185,14 +203,17 @@ function VideoPlayer({
 
   // ===== SYNC: Seek =====
   useEffect(() => {
-    if (!playerReadyRef.current || !playerRef.current) return;
+    if (!playerReadyRef.current || !playerRef.current) {
+      console.log('⏳ Player not ready, skipping seek sync');
+      return;
+    }
 
     try {
       const currentTimeInPlayer = playerRef.current.getCurrentTime();
       const diff = Math.abs(currentTimeInPlayer - currentTime);
       
       if (diff > 0.5) {
-        console.log('⏩ Syncing seek to:', currentTime);
+        console.log('⏩ Syncing seek to:', currentTime, 'current:', currentTimeInPlayer, 'diff:', diff);
         playerRef.current.seekTo(currentTime, true);
       }
     } catch (error) {
@@ -269,6 +290,7 @@ function VideoPlayer({
           </div>
         )}
         
+        {/* 🔒 Guest Overlay */}
         {!isHost && isPlayerReady && (
           <div className="guest-overlay">
             <div className="guest-lock">🔒</div>
@@ -276,6 +298,7 @@ function VideoPlayer({
           </div>
         )}
         
+        {/* Sync Badge */}
         {isConnected && isPlayerReady && (
           <div className="sync-badge">
             <span>{isSynced ? '✅ Synced' : '🔄 Out of Sync'}</span>
