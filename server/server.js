@@ -82,7 +82,14 @@ function sendError(ws, message) {
 
 // ============ API ROUTES ============
 
-app.post('/api/rooms/create', (req, res) => {
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    message: "Watch Party Backend Running 🚀"
+  });
+});
+
+app.post('/api/rooms/', (req, res) => {
   try {
     const { displayName, videoUrl } = req.body;
     
