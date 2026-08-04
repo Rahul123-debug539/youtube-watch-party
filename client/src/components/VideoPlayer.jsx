@@ -11,7 +11,9 @@ function VideoPlayer({
   isConnected,
   onVideoChange,
   onSyncRequest,
-  isSynced
+  isSynced,
+  onTimeUpdate,
+  onPlayerReady
 }) {
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
@@ -71,7 +73,9 @@ function VideoPlayer({
         videoId: videoId,
         playerVars: {
           autoplay: 0,
-          controls: 0,
+          controls: 0,        // ❌ HIDE ALL CONTROLS
+          disablekb: 1,       // ❌ DISABLE KEYBOARD CONTROLS
+          fs: 0,              // ❌ HIDE FULLSCREEN BUTTON
           rel: 0,
           modestbranding: 1,
           enablejsapi: 1,
@@ -86,6 +90,9 @@ function VideoPlayer({
             }
             event.target.setVolume(volume);
             console.log('🎬 Player ready');
+            if (onPlayerReady) {
+              onPlayerReady();
+            }
           },
           onStateChange: (event) => {
             const state = event.data;
@@ -94,29 +101,35 @@ function VideoPlayer({
             // Update player time
             if (playerRef.current) {
               try {
-                setPlayerTime(playerRef.current.getCurrentTime());
+                const time = playerRef.current.getCurrentTime();
+                setPlayerTime(time);
+                if (onTimeUpdate) {
+                  onTimeUpdate(time);
+                }
               } catch (e) {}
             }
             
-            // Only send events if HOST
+            // 🔒 ONLY HOST CAN CONTROL - IGNORE GUEST ACTIONS
             if (!isHostRef.current) {
-              console.log('🔒 Non-host, ignoring player state change');
+              console.log('🔒 Guest attempted to control player - IGNORED');
+              // If guest tries to play/pause, revert immediately
+              if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
+                console.log('⛔ Guest tried to play - pausing immediately');
+                event.target.pauseVideo();
+              } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
+                console.log('⛔ Guest tried to pause - playing immediately');
+                event.target.playVideo();
+              }
               return;
             }
             
+            // Only host can trigger events
             if (state === window.YT.PlayerState.PLAYING && !isPlayingRef.current) {
               console.log('▶️ Host: Player started playing');
-              
+              onPlay();
             } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
               console.log('⏸️ Host: Player paused');
-              
-            }
-          },
-          onVideoProgress: () => {
-            if (playerRef.current) {
-              try {
-                setPlayerTime(playerRef.current.getCurrentTime());
-              } catch (e) {}
+              onPause();
             }
           }
         }
@@ -242,6 +255,14 @@ function VideoPlayer({
           </div>
         )}
         
+        {/* 🔒 Guest Overlay - Blocks clicks on video */}
+        {!isHost && isPlayerReady && (
+          <div className="guest-overlay" title="🔒 Only Host can control playback">
+            <div className="guest-lock">🔒</div>
+            <span>View Only Mode</span>
+          </div>
+        )}
+        
         {/* Sync Status Badge */}
         {isConnected && isPlayerReady && (
           <div className="sync-badge">
@@ -257,7 +278,7 @@ function VideoPlayer({
             onClick={onPlay}
             disabled={!isHost || !isConnected}
             className={`control-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only host can play' : 'Play'}
+            title={!isHost ? '🔒 Only Host can play' : 'Play'}
           >
             ▶ Play
           </button>
@@ -265,7 +286,7 @@ function VideoPlayer({
             onClick={onPause}
             disabled={!isHost || !isConnected}
             className={`control-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only host can pause' : 'Pause'}
+            title={!isHost ? '🔒 Only Host can pause' : 'Pause'}
           >
             ⏸ Pause
           </button>
@@ -276,7 +297,7 @@ function VideoPlayer({
             onClick={() => setShowChangeVideo(!showChangeVideo)}
             disabled={!isHost || !isConnected}
             className={`control-btn ${!isHost ? 'disabled' : ''}`}
-            title={!isHost ? '🔒 Only host can change video' : 'Change video'}
+            title={!isHost ? '🔒 Only Host can change video' : 'Change video'}
           >
             📺 Change Video
           </button>
@@ -365,6 +386,37 @@ function VideoPlayer({
           background: rgba(0, 0, 0, 0.8);
           color: white;
           gap: 12px;
+          z-index: 10;
+        }
+        .guest-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: rgba(0, 0, 0, 0.3);
+          color: white;
+          gap: 8px;
+          z-index: 5;
+          cursor: not-allowed;
+          backdrop-filter: blur(2px);
+          border-radius: 8px;
+        }
+        .guest-overlay .guest-lock {
+          font-size: 48px;
+          opacity: 0.7;
+        }
+        .guest-overlay span {
+          font-size: 14px;
+          font-weight: 500;
+          opacity: 0.8;
+          background: rgba(0, 0, 0, 0.6);
+          padding: 4px 16px;
+          border-radius: 20px;
         }
         .spinner {
           width: 40px;
@@ -392,6 +444,7 @@ function VideoPlayer({
           align-items: center;
           gap: 10px;
           backdrop-filter: blur(10px);
+          z-index: 15;
         }
         .sync-badge .sync-time {
           color: #6c63ff;
@@ -540,6 +593,12 @@ function VideoPlayer({
             padding: 4px 10px;
             bottom: 10px;
             right: 10px;
+          }
+          .guest-overlay .guest-lock {
+            font-size: 32px;
+          }
+          .guest-overlay span {
+            font-size: 12px;
           }
         }
       `}</style>
