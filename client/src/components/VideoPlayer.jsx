@@ -30,14 +30,17 @@ function VideoPlayer({
 
   useEffect(() => {
     isHostRef.current = isHost;
+    console.log('🎯 isHost updated:', isHost);
   }, [isHost]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
+    console.log('🎯 isPlaying updated:', isPlaying);
   }, [isPlaying]);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
+    console.log('🎯 currentTime updated:', currentTime);
   }, [currentTime]);
 
   // Load YouTube API
@@ -73,9 +76,9 @@ function VideoPlayer({
         videoId: videoId,
         playerVars: {
           autoplay: 0,
-          controls: 0,        // ❌ HIDE ALL CONTROLS
-          disablekb: 1,       // ❌ DISABLE KEYBOARD CONTROLS
-          fs: 0,              // ❌ HIDE FULLSCREEN BUTTON
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
           rel: 0,
           modestbranding: 1,
           enablejsapi: 1,
@@ -96,7 +99,7 @@ function VideoPlayer({
           },
           onStateChange: (event) => {
             const state = event.data;
-            console.log('🎬 Player state:', state);
+            console.log('🎬 Player state:', state, 'isHost:', isHostRef.current);
             
             // Update player time
             if (playerRef.current) {
@@ -130,7 +133,14 @@ function VideoPlayer({
             } else if (state === window.YT.PlayerState.PAUSED && isPlayingRef.current) {
               console.log('⏸️ Host: Player paused');
               onPause();
+            } else if (state === window.YT.PlayerState.ENDED) {
+              console.log('⏹️ Video ended');
+              // Video ended - pause and reset
+              setIsPlaying(false);
             }
+          },
+          onError: (event) => {
+            console.error('🎬 YouTube Player error:', event);
           }
         }
       });
@@ -154,33 +164,48 @@ function VideoPlayer({
     }
   }, [videoId]);
 
-  // Handle play/pause sync
+  // Handle play/pause sync - FIXED
   useEffect(() => {
-    if (!playerReadyRef.current || !playerRef.current) return;
+    if (!playerReadyRef.current || !playerRef.current) {
+      console.log('⏳ Player not ready yet, skipping sync');
+      return;
+    }
 
     try {
       const playerState = playerRef.current.getPlayerState();
+      console.log('🔄 Sync check - isPlaying:', isPlaying, 'playerState:', playerState);
+      
       if (isPlaying && playerState !== window.YT.PlayerState.PLAYING) {
         console.log('▶️ Syncing play');
         playerRef.current.playVideo();
       } else if (!isPlaying && playerState === window.YT.PlayerState.PLAYING) {
         console.log('⏸️ Syncing pause');
         playerRef.current.pauseVideo();
+      } else {
+        console.log('✅ Already in correct state');
       }
     } catch (error) {
       console.error('Play/pause sync error:', error);
     }
   }, [isPlaying]);
 
-  // Handle seek sync
+  // Handle seek sync - FIXED
   useEffect(() => {
-    if (!playerReadyRef.current || !playerRef.current) return;
+    if (!playerReadyRef.current || !playerRef.current) {
+      console.log('⏳ Player not ready yet, skipping seek sync');
+      return;
+    }
 
     try {
       const currentTimeInPlayer = playerRef.current.getCurrentTime();
-      if (Math.abs(currentTimeInPlayer - currentTime) > 0.5) {
+      const diff = Math.abs(currentTimeInPlayer - currentTime);
+      console.log('🔄 Seek check - currentTime:', currentTime, 'playerTime:', currentTimeInPlayer, 'diff:', diff);
+      
+      if (diff > 0.5) {
         console.log('⏩ Syncing seek to:', currentTime);
         playerRef.current.seekTo(currentTime, true);
+      } else {
+        console.log('✅ Already at correct time');
       }
     } catch (error) {
       console.error('Seek sync error:', error);
@@ -266,8 +291,13 @@ function VideoPlayer({
         {/* Sync Status Badge */}
         {isConnected && isPlayerReady && (
           <div className="sync-badge">
-            {isSynced ? '✅ Synced' : '🔄 Out of Sync'}
+            <span>{isSynced ? '✅ Synced' : '🔄 Out of Sync'}</span>
             <span className="sync-time">{formatTime(playerTime)}</span>
+            {!isSynced && (
+              <button onClick={handleGoLive} className="sync-go-live-btn">
+                Go Live
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -277,7 +307,7 @@ function VideoPlayer({
           <button
             onClick={onPlay}
             disabled={!isHost || !isConnected}
-            className={`control-btn ${!isHost ? 'disabled' : ''}`}
+            className={`control-btn play-btn ${!isHost ? 'disabled' : ''}`}
             title={!isHost ? '🔒 Only Host can play' : 'Play'}
           >
             ▶ Play
@@ -285,7 +315,7 @@ function VideoPlayer({
           <button
             onClick={onPause}
             disabled={!isHost || !isConnected}
-            className={`control-btn ${!isHost ? 'disabled' : ''}`}
+            className={`control-btn pause-btn ${!isHost ? 'disabled' : ''}`}
             title={!isHost ? '🔒 Only Host can pause' : 'Pause'}
           >
             ⏸ Pause
@@ -327,7 +357,7 @@ function VideoPlayer({
           />
         </div>
 
-        <div className="host-badge">
+        <div className={`host-badge ${isHost ? 'host' : 'guest'}`}>
           {isHost ? '👑 Host (Controls Enabled)' : '👤 Participant (View Only)'}
         </div>
       </div>
@@ -388,6 +418,17 @@ function VideoPlayer({
           gap: 12px;
           z-index: 10;
         }
+        .spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid #33333b;
+          border-top-color: #6c63ff;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
         .guest-overlay {
           position: absolute;
           top: 0;
@@ -418,17 +459,6 @@ function VideoPlayer({
           padding: 4px 16px;
           border-radius: 20px;
         }
-        .spinner {
-          width: 40px;
-          height: 40px;
-          border: 3px solid #33333b;
-          border-top-color: #6c63ff;
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
         .sync-badge {
           position: absolute;
           bottom: 20px;
@@ -449,6 +479,20 @@ function VideoPlayer({
         .sync-badge .sync-time {
           color: #6c63ff;
           font-family: monospace;
+        }
+        .sync-go-live-btn {
+          background: #6c63ff;
+          border: none;
+          color: white;
+          padding: 2px 10px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .sync-go-live-btn:hover {
+          background: #7b73ff;
         }
         .video-controls {
           display: flex;
@@ -485,6 +529,14 @@ function VideoPlayer({
         .control-btn.disabled {
           opacity: 0.4;
           cursor: not-allowed;
+        }
+        .control-btn.play-btn:hover:not(:disabled) {
+          background: #4caf50;
+          border-color: #4caf50;
+        }
+        .control-btn.pause-btn:hover:not(:disabled) {
+          background: #ff6b6b;
+          border-color: #ff6b6b;
         }
         .go-live-btn {
           background: #2a2a3a;
@@ -529,6 +581,14 @@ function VideoPlayer({
           font-weight: 500;
           background: #25252b;
           border: 1px solid #33333b;
+        }
+        .host-badge.host {
+          border-color: #ffd700;
+          color: #ffd700;
+        }
+        .host-badge.guest {
+          border-color: #6c63ff;
+          color: #6c63ff;
         }
         .change-video-form {
           display: flex;

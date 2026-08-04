@@ -19,18 +19,31 @@ function Room({ roomState, displayName, userId, onLeave }) {
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
-  const [copySuccess, setCopySuccess] = useState(false);
   
   // ===== REFS =====
   const toastIdCounter = useRef(0);
   const hasJoinedRef = useRef(false);
   const syncTimerRef = useRef(null);
   const leaveInProgressRef = useRef(false);
+  const isPlayingRef = useRef(isPlaying);
+  const currentTimeRef = useRef(currentTime);
   
+  // Update refs
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
   console.log('🔍 Room mounted:', { 
     isHost, 
     userId, 
     roomCode: room?.roomCode,
+    isPlaying,
+    currentTime,
+    videoId,
     participantsCount: participants?.length 
   });
 
@@ -75,7 +88,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
       }
       syncTimerRef.current = setInterval(() => {
         checkSync();
-      }, 5000);
+      }, 3000);
     }
     return () => {
       if (syncTimerRef.current) {
@@ -132,15 +145,17 @@ function Room({ roomState, displayName, userId, onLeave }) {
         break;
 
       case 'play':
-        console.log('▶️ Play event received from host');
+        console.log('▶️ Play event received');
         setIsPlaying(true);
         setIsSynced(true);
+        addToast('▶️ Video playing', 'info');
         break;
 
       case 'pause':
-        console.log('⏸️ Pause event received from host');
+        console.log('⏸️ Pause event received');
         setIsPlaying(false);
         setIsSynced(true);
+        addToast('⏸️ Video paused', 'info');
         break;
 
       case 'seek':
@@ -150,12 +165,12 @@ function Room({ roomState, displayName, userId, onLeave }) {
         break;
 
       case 'change_video':
-        console.log('🎬 Video changed by host:', payload.videoId);
+        console.log('🎬 Video changed:', payload.videoId);
         setVideoId(payload.videoId);
         setCurrentTime(0);
         setIsPlaying(false);
         setIsSynced(true);
-        addToast('Host changed the video', 'info');
+        addToast('🎬 Video changed', 'info');
         break;
 
       case 'sync_response':
@@ -310,9 +325,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
   // ===== COPY ROOM CODE =====
   const copyRoomCode = () => {
     navigator.clipboard.writeText(room.roomCode);
-    setCopySuccess(true);
     addToast('✅ Room code copied!', 'success');
-    setTimeout(() => setCopySuccess(false), 2000);
   };
 
   const copyRoomLink = () => {
@@ -330,12 +343,8 @@ function Room({ roomState, displayName, userId, onLeave }) {
           <h2>🎬 Watch Party</h2>
           <div className="room-code-wrapper">
             <span className="room-code">Room: {room?.roomCode || 'Loading...'}</span>
-            <button onClick={copyRoomCode} className="icon-btn" title="Copy room code">
-              📋
-            </button>
-            <button onClick={copyRoomLink} className="icon-btn" title="Copy room link">
-              🔗
-            </button>
+            <button onClick={copyRoomCode} className="icon-btn" title="Copy room code">📋</button>
+            <button onClick={copyRoomLink} className="icon-btn" title="Copy room link">🔗</button>
           </div>
           <span className={`status ${isConnected ? 'connected' : 'disconnected'}`}>
             {isConnected ? '● Connected' : '○ Disconnected'}
@@ -347,9 +356,7 @@ function Room({ roomState, displayName, userId, onLeave }) {
             {isSynced ? '✅ Synced' : '🔄 Out of Sync'}
           </span>
         </div>
-        <button onClick={handleLeave} className="btn-leave">
-          🚪 Leave
-        </button>
+        <button onClick={handleLeave} className="btn-leave">🚪 Leave</button>
       </div>
 
       {/* CONTENT */}

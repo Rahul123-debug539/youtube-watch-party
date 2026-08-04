@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 const server = createServer(app);
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
@@ -68,6 +68,7 @@ function broadcastToRoom(roomCode, type, payload, excludeSocketId = null) {
     if (client && client.ws.readyState === 1) {
       client.ws.send(message);
       count++;
+      console.log(`📤 Sent ${type} to ${data.displayName} (${socketId})`);
     }
   }
 
@@ -81,13 +82,6 @@ function sendError(ws, message) {
 }
 
 // ============ API ROUTES ============
-
-app.get("/", (req, res) => {
-  res.json({
-    status: "OK",
-    message: "Watch Party Backend Running 🚀"
-  });
-});
 
 app.post('/api/rooms/create', (req, res) => {
   try {
@@ -332,7 +326,7 @@ async function handlePlay(socketId) {
     return;
   }
 
-  // ✅ CRITICAL: Check if user is HOST
+  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   console.log(`🔍 User ${client.userId} isHost: ${isHost}, HostId: ${room.hostId}`);
 
@@ -342,9 +336,21 @@ async function handlePlay(socketId) {
     return;
   }
 
+  // Update room state
   room.isPlaying = true;
-  console.log(`▶️ Play broadcast from host`);
-  broadcastToRoom(client.roomCode, 'play', { timestamp: Date.now() }, socketId);
+  console.log(`▶️ Play - Room ${client.roomCode} state updated`);
+
+  // Broadcast to ALL clients including host
+  broadcastToRoom(client.roomCode, 'play', { 
+    timestamp: Date.now(),
+    isPlaying: true 
+  }, null); // ❌ Remove excludeSocketId so host also gets it
+
+  // Also send to host specifically to ensure sync
+  sendToClient(socketId, 'play', { 
+    timestamp: Date.now(),
+    isPlaying: true 
+  });
 }
 
 // ===== PAUSE - ONLY HOST =====
@@ -360,7 +366,7 @@ async function handlePause(socketId) {
     return;
   }
 
-  // ✅ CRITICAL: Check if user is HOST
+  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   console.log(`🔍 User ${client.userId} isHost: ${isHost}, HostId: ${room.hostId}`);
 
@@ -370,9 +376,21 @@ async function handlePause(socketId) {
     return;
   }
 
+  // Update room state
   room.isPlaying = false;
-  console.log(`⏸️ Pause broadcast from host`);
-  broadcastToRoom(client.roomCode, 'pause', { timestamp: Date.now() }, socketId);
+  console.log(`⏸️ Pause - Room ${client.roomCode} state updated`);
+
+  // Broadcast to ALL clients including host
+  broadcastToRoom(client.roomCode, 'pause', { 
+    timestamp: Date.now(),
+    isPlaying: false 
+  }, null); // ❌ Remove excludeSocketId so host also gets it
+
+  // Also send to host specifically to ensure sync
+  sendToClient(socketId, 'pause', { 
+    timestamp: Date.now(),
+    isPlaying: false 
+  });
 }
 
 // ===== SEEK - ONLY HOST =====
@@ -389,7 +407,7 @@ async function handleSeek(socketId, payload) {
     return;
   }
 
-  // ✅ CRITICAL: Check if user is HOST
+  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   if (!isHost) {
     console.log(`❌ Non-host tried to seek!`);
@@ -397,8 +415,21 @@ async function handleSeek(socketId, payload) {
     return;
   }
 
+  // Update room state
   room.currentTime = time;
-  broadcastToRoom(client.roomCode, 'seek', { time }, socketId);
+  console.log(`⏩ Seek - Room ${client.roomCode} time updated to ${time}`);
+
+  // Broadcast to ALL clients including host
+  broadcastToRoom(client.roomCode, 'seek', { 
+    time,
+    timestamp: Date.now()
+  }, null); // ❌ Remove excludeSocketId so host also gets it
+
+  // Also send to host specifically to ensure sync
+  sendToClient(socketId, 'seek', { 
+    time,
+    timestamp: Date.now()
+  });
 }
 
 // ===== CHANGE VIDEO - ONLY HOST =====
@@ -415,7 +446,7 @@ async function handleChangeVideo(socketId, payload) {
     return;
   }
 
-  // ✅ CRITICAL: Check if user is HOST
+  // Check if user is HOST
   const isHost = client.userId === room.hostId;
   if (!isHost) {
     console.log(`❌ Non-host tried to change video!`);
@@ -423,10 +454,23 @@ async function handleChangeVideo(socketId, payload) {
     return;
   }
 
+  // Update room state
   room.currentVideo = videoId;
   room.currentTime = 0;
   room.isPlaying = false;
-  broadcastToRoom(client.roomCode, 'change_video', { videoId },);
+  console.log(`🎬 Video changed - Room ${client.roomCode}`);
+
+  // Broadcast to ALL clients including host
+  broadcastToRoom(client.roomCode, 'change_video', { 
+    videoId,
+    timestamp: Date.now()
+  }, null); // ❌ Remove excludeSocketId so host also gets it
+
+  // Also send to host specifically to ensure sync
+  sendToClient(socketId, 'change_video', { 
+    videoId,
+    timestamp: Date.now()
+  });
 }
 
 // ===== SYNC =====
